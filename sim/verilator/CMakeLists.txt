@@ -74,6 +74,7 @@ set(VERILATOR_COMMON_ARGS
     -Wno-UNSIGNED
     -Wno-PINMISSING
     -Wno-UNOPTFLAT
+    -Wno-SYNCASYNCNET
     --x-assign unique
     --x-initial unique
     -DSIMULATION

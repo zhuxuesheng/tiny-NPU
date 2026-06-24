@@ -11,21 +11,35 @@ BUILD_DIR   := build
 WAVE_DIR    := waves
 LUT_DIR     := rtl/ops
 
+ifeq ($(OS),Windows_NT)
+EXEEXT := .exe
+else
+EXEEXT :=
+endif
+
+SIM_TARGET := Vtop
+SIM_BIN := Vtop$(EXEEXT)
+
 # Verilator
 VERILATOR   ?= verilator
 VERILATOR_FLAGS := --cc --trace --trace-structs -Wall \
     -Wno-UNUSED -Wno-UNDRIVEN -Wno-PINCONNECTEMPTY \
+    -Wno-DECLFILENAME -Wno-IMPORTSTAR -Wno-VARHIDDEN \
+    -Wno-WIDTH -Wno-BLKSEQ -Wno-UNSIGNED \
+    -Wno-PINMISSING -Wno-UNOPTFLAT -Wno-SYNCASYNCNET \
     --x-assign unique --x-initial unique \
     -DSIMULATION \
     -I$(RTL_DIR)/pkg -I$(RTL_DIR)/bus -I$(RTL_DIR)/mem \
-    -I$(RTL_DIR)/ctrl -I$(RTL_DIR)/gemm -I$(RTL_DIR)/ops
+    -I$(RTL_DIR)/ctrl -I$(RTL_DIR)/gemm -I$(RTL_DIR)/ops \
+    -I$(RTL_DIR)/graph
 
 # SystemVerilog sources (order matters for packages)
 SV_PKG := \
     $(RTL_DIR)/pkg/npu_pkg.sv \
     $(RTL_DIR)/pkg/isa_pkg.sv \
     $(RTL_DIR)/pkg/fixed_pkg.sv \
-    $(RTL_DIR)/bus/axi_types.sv
+    $(RTL_DIR)/bus/axi_types.sv \
+    $(RTL_DIR)/graph/fp16_utils.sv
 
 SV_SRC := \
     $(RTL_DIR)/bus/axi_lite_regs.sv \
@@ -40,6 +54,7 @@ SV_SRC := \
     $(RTL_DIR)/ctrl/ucode_fetch.sv \
     $(RTL_DIR)/ctrl/ucode_decode.sv \
     $(RTL_DIR)/gemm/mac_int8.sv \
+    $(RTL_DIR)/gemm/mac_fp16.sv \
     $(RTL_DIR)/gemm/pe.sv \
     $(RTL_DIR)/gemm/systolic_array.sv \
     $(RTL_DIR)/gemm/gemm_ctrl.sv \
@@ -49,12 +64,17 @@ SV_SRC := \
     $(RTL_DIR)/ops/reduce_sum.sv \
     $(RTL_DIR)/ops/exp_lut.sv \
     $(RTL_DIR)/ops/recip_lut.sv \
+    $(RTL_DIR)/graph/graph_exp_lut_fp16.sv \
     $(RTL_DIR)/ops/softmax_engine.sv \
     $(RTL_DIR)/ops/mean_var_engine.sv \
     $(RTL_DIR)/ops/rsqrt_lut.sv \
+    $(RTL_DIR)/graph/graph_rsqrt_lut_fp16.sv \
     $(RTL_DIR)/ops/layernorm_engine.sv \
     $(RTL_DIR)/ops/gelu_lut.sv \
     $(RTL_DIR)/ops/gelu_engine.sv \
+    $(RTL_DIR)/ops/silu_lut.sv \
+    $(RTL_DIR)/ops/rmsnorm_engine.sv \
+    $(RTL_DIR)/ops/rope_engine.sv \
     $(RTL_DIR)/top.sv
 
 ALL_SV := $(SV_PKG) $(SV_SRC)
@@ -72,12 +92,12 @@ PYTHON ?= python3
 all: sim
 
 # ---- Verilator Simulation (direct Makefile) ----
-sim: $(BUILD_DIR)/Vtop
+sim: $(BUILD_DIR)/$(SIM_BIN)
 	@echo "=== Running NPU Simulation ==="
-	cd $(BUILD_DIR) && ./Vtop +trace
+	cd $(BUILD_DIR) && ./$(SIM_BIN) +trace
 	@echo "=== Simulation Complete ==="
 
-$(BUILD_DIR)/Vtop: $(ALL_SV) $(TB_CPP)
+$(BUILD_DIR)/$(SIM_BIN): $(ALL_SV) $(TB_CPP)
 	@mkdir -p $(BUILD_DIR)
 	$(VERILATOR) $(VERILATOR_FLAGS) \
 		--top-module $(TOP_MODULE) \
@@ -85,13 +105,13 @@ $(BUILD_DIR)/Vtop: $(ALL_SV) $(TB_CPP)
 		--Mdir $(BUILD_DIR)/obj_dir \
 		--exe $(abspath $(TB_CPP)) \
 		$(ALL_SV)
-	$(MAKE) -C $(BUILD_DIR)/obj_dir -f Vtop.mk Vtop
-	cp $(BUILD_DIR)/obj_dir/Vtop $(BUILD_DIR)/Vtop
+	$(MAKE) -C $(BUILD_DIR)/obj_dir -f Vtop.mk $(SIM_TARGET)
+	cp $(BUILD_DIR)/obj_dir/$(SIM_BIN) $(BUILD_DIR)/$(SIM_BIN)
 
 # ---- CMake-based Verilator build ----
 cmake_sim:
 	@mkdir -p $(BUILD_DIR)/cmake
-	cd $(BUILD_DIR)/cmake && cmake ../../$(SIM_DIR) && make -j$$(nproc)
+	cd $(BUILD_DIR)/cmake && cmake ../../$(SIM_DIR) && cmake --build .
 	@echo "Built via CMake: $(BUILD_DIR)/cmake/npu_sim"
 
 # ---- Python Golden Model Tests ----
